@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>skyblush — turbulence, visualized</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ffffff'/%3E%3Cstop offset='55%25' stop-color='%23ff8fc4'/%3E%3Cstop offset='100%25' stop-color='%23ff2e93'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='%23190b2c'/%3E%3Cpath d='M32 10 L38 26 L54 30 L54 35 L38 32 L34 48 L42 52 L42 56 L32 53 L22 56 L22 52 L30 48 L26 32 L10 35 L10 30 L26 26 Z' fill='url(%23g)' stroke='%23ff2e93' stroke-width='1.2'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #120820;
+            --bg-mid: #1d0e33;
+            --panel: #190b2c;
+            --panel-line: #3a2258;
+            --white: #ffffff;
+            --pink-light: #ffc3e3;
+            --pink-mid: #ff8fc4;
+            --pink-strong: #ff2e93;
+            --lilac: #c9a6ff;
+            --lilac-dim: #8a6fb8;
+            --text: #f1e9fb;
+            --text-dim: #a892c9;
+            --error: #ff6b6b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(ellipse 90% 60% at 50% -10%, #35184f 0%, transparent 60%), linear-gradient(180deg, var(--bg-deep) 0%, #0c0515 100%);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .app {
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 40px 20px 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 28px;
+        }
+
+        header {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .wordmark {
+            font-family: 'Unbounded', sans-serif;
+            font-weight: 700;
+            font-size: 28px;
+            letter-spacing: -0.02em;
+            background: linear-gradient(120deg, var(--white) 0%, var(--pink-light) 55%, var(--pink-strong) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .tagline {
+            font-size: 13px;
+            color: var(--text-dim);
+            letter-spacing: 0.01em;
+        }
+
+        .controls {
+            width: 100%;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .field {
+            flex: 1 1 140px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+            .field label {
+                font-size: 11px;
+                color: var(--lilac-dim);
+                padding-left: 2px;
+            }
+
+            .field input {
+                background: var(--panel);
+                border: 1px solid var(--panel-line);
+                color: var(--text);
+                border-radius: 12px;
+                padding: 11px 13px;
+                font-family: 'Inter', sans-serif;
+                font-size: 14px;
+                outline: none;
+                transition: border-color .15s ease, box-shadow .15s ease;
+            }
+
+                .field input::placeholder {
+                    color: #6c5590;
+                }
+
+                .field input:focus-visible {
+                    border-color: var(--pink-mid);
+                    box-shadow: 0 0 0 3px rgba(255,143,196,0.18);
+                }
+
+                .field input[type="date"] {
+                    color-scheme: dark;
+                }
+
+        .chart-btn {
+            flex: 0 0 auto;
+            align-self: flex-end;
+            background: linear-gradient(120deg, var(--pink-strong), #b23aff);
+            border: none;
+            color: var(--white);
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform .12s ease, filter .12s ease;
+        }
+
+            .chart-btn:hover {
+                filter: brightness(1.08);
+            }
+
+            .chart-btn:active {
+                transform: scale(0.97);
+            }
+
+            .chart-btn:disabled {
+                opacity: 0.6;
+                cursor: default;
+            }
+
+            .chart-btn:focus-visible {
+                outline: 2px solid var(--pink-light);
+                outline-offset: 2px;
+            }
+
+        .flight-strip {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-family: 'Unbounded', sans-serif;
+        }
+
+            .flight-strip .fn {
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--text);
+            }
+
+            .flight-strip .route {
+                font-size: 13px;
+                color: var(--pink-mid);
+            }
+
+                .flight-strip .route.error {
+                    color: var(--error);
+                }
+
+        .map-panel {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1/1;
+            background: var(--panel);
+            border: 1px solid var(--panel-line);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background: var(--panel);
+        }
+
+        .leaflet-tile-pane {
+            filter: invert(1) hue-rotate(210deg) brightness(0.9) contrast(1.05) saturate(1.6);
+        }
+
+        .leaflet-container {
+            background: var(--bg-deep);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .leaflet-control-attribution {
+            background: rgba(18,8,32,0.7) !important;
+            color: var(--text-dim) !important;
+            font-size: 9px !important;
+        }
+
+            .leaflet-control-attribution a {
+                color: var(--pink-mid) !important;
+            }
+
+        .leaflet-control-zoom {
+            display: none;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            right: 14px;
+            top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 500;
+        }
+
+        .zoom-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: rgba(18,8,32,0.78);
+            backdrop-filter: blur(6px);
+            border: 1px solid var(--panel-line);
+            color: var(--text);
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+            .zoom-btn:hover {
+                border-color: var(--pink-mid);
+            }
+
+            .zoom-btn:focus-visible {
+                outline: 2px solid var(--pink-light);
+                outline-offset: 2px;
+            }
+
+        .plane-icon {
+            filter: drop-shadow(0 0 6px rgba(255,143,196,0.85));
+            cursor: grab;
+        }
+
+            .plane-icon:active {
+                cursor: grabbing;
+            }
+
+        .plane-time-badge {
+            background: rgba(18,8,32,0.82);
+            border: 1px solid var(--panel-line);
+            border-radius: 7px;
+            padding: 2px 7px;
+            font-family: 'Unbounded', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--white);
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .readout {
+            position: absolute;
+            left: 14px;
+            top: 14px;
+            background: rgba(18,8,32,0.75);
+            backdrop-filter: blur(6px);
+            border: 1px solid var(--panel-line);
+            border-radius: 12px;
+            padding: 10px 13px;
+            min-width: 128px;
+            pointer-events: none;
+            z-index: 500;
+        }
+
+            .readout .row {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                font-size: 11px;
+                color: var(--text-dim);
+                padding: 2px 0;
+            }
+
+                .readout .row span:last-child {
+                    color: var(--text);
+                    font-weight: 600;
+                }
+
+            .readout .level {
+                font-family: 'Unbounded', sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 4px;
+            }
+
+        .map-message {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(12,5,21,0.82);
+            backdrop-filter: blur(4px);
+            z-index: 600;
+            text-align: center;
+            padding: 30px;
+        }
+
+            .map-message.visible {
+                display: flex;
+            }
+
+        .map-message-inner {
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+            .map-message-inner strong {
+                display: block;
+                font-family: 'Unbounded', sans-serif;
+                font-size: 15px;
+                color: var(--error);
+                margin-bottom: 6px;
+            }
+
+        .legend {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .legend-bar {
+            height: 8px;
+            border-radius: 99px;
+            background: linear-gradient(90deg, var(--white), var(--pink-light), var(--pink-mid), var(--pink-strong));
+        }
+
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10.5px;
+            color: var(--text-dim);
+        }
+
+        .bottom-row {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .scrub {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 99px;
+            background: var(--panel-line);
+            outline: none;
+        }
+
+            .scrub::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: var(--white);
+                border: 2px solid var(--pink-strong);
+                cursor: pointer;
+            }
+
+            .scrub::-moz-range-thumb {
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: var(--white);
+                border: 2px solid var(--pink-strong);
+                cursor: pointer;
+            }
+
+        .play-btn {
+            flex: 0 0 auto;
+            background: transparent;
+            border: 1px solid var(--panel-line);
+            color: var(--text);
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+            .play-btn:hover {
+                border-color: var(--pink-mid);
+            }
+
+            .play-btn:focus-visible {
+                outline: 2px solid var(--pink-light);
+                outline-offset: 2px;
+            }
+
+        .time-label {
+            font-family: 'Unbounded', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--pink-mid);
+            white-space: nowrap;
+            min-width: 78px;
+            text-align: right;
+        }
+
+        footer {
+            text-align: center;
+            font-size: 11px;
+            color: var(--lilac-dim);
+            line-height: 1.6;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+
+        /* ---------- mobile ---------- */
+        @media (max-width: 480px) {
+            .app {
+                padding: 24px 14px 40px;
+                gap: 20px;
+            }
+
+            .wordmark {
+                font-size: 24px;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            .field {
+                flex: 1 1 auto;
+            }
+
+            .chart-btn {
+                align-self: stretch;
+                width: 100%;
+                padding: 13px 20px;
+            }
+
+            .flight-strip {
+                font-size: 13px;
+            }
+
+                .flight-strip .fn {
+                    font-size: 13px;
+                }
+
+                .flight-strip .route {
+                    font-size: 12px;
+                }
+
+            .readout {
+                min-width: 108px;
+                padding: 8px 10px;
+                left: 10px;
+                top: 10px;
+            }
+
+                .readout .row {
+                    font-size: 10px;
+                }
+
+                .readout .level {
+                    font-size: 12px;
+                }
+
+            .zoom-controls {
+                right: 10px;
+                top: 10px;
+            }
+
+            .zoom-btn {
+                width: 26px;
+                height: 26px;
+            }
+
+            .legend-labels {
+                font-size: 9.5px;
+            }
+
+            .bottom-row {
+                gap: 8px;
+            }
+
+            .time-label {
+                font-size: 11px;
+                min-width: 64px;
+            }
+
+            .plane-time-badge {
+                font-size: 9px;
+                padding: 1px 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app">
+
+        <header>
+            <div class="wordmark">skyblush</div>
+            <div class="tagline">turbulence, visualized along the route</div>
+        </header>
+
+        <div class="controls">
+            <div class="field">
+                <label for="flightNumber">Flight number</label>
+                <input id="flightNumber" type="text" value="PC818" placeholder="e.g. PC818">
+            </div>
+            <div class="field">
+                <label for="flightDate">Date</label>
+                <input id="flightDate" type="date" value="2025-11-15" min="2000-01-01">
+            </div>
+            <button class="chart-btn" id="chartBtn">Chart route</button>
+        </div>
+
+        <div class="flight-strip">
+            <span class="fn" id="fnLabel">PC818</span>
+            <span class="route" id="routeLabel">SAW → EBL · 15 Nov 2025</span>
+        </div>
+
+        <div class="map-panel">
+            <div id="map"></div>
+
+            <div class="readout" id="readout">
+                <div class="level" id="levelText">Calm</div>
+                <div class="row"><span>Along route</span><span id="pctText">0%</span></div>
+                <div class="row"><span>Altitude</span><span id="altText">FL000</span></div>
+                <div class="row"><span>Flight time</span><span id="durText">2h 40m</span></div>
+            </div>
+
+            <div class="zoom-controls">
+                <button class="zoom-btn" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+                <button class="zoom-btn" id="zoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
+            </div>
+
+            <div class="map-message" id="mapMessage">
+                <div class="map-message-inner">
+                    <strong id="mapMessageTitle">This flight doesn't exist</strong>
+                    <span id="mapMessageText">Double-check the flight number and date, then try again.</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-bar"></div>
+            <div class="legend-labels">
+                <span>Calm</span><span>Light</span><span>Moderate</span><span>Strong</span>
+            </div>
+        </div>
+
+        <div class="bottom-row">
+            <button class="play-btn" id="playBtn" aria-label="Play route" title="Play route">&#9654;</button>
+            <input class="scrub" id="scrub" type="range" min="0" max="1000" value="0">
+            <span class="time-label" id="timeLabel">0:00 / 2:40</span>
+        </div>
+
+        <footer>
+            Real map, real flight data, real wind-shear turbulence estimate
+        </footer>
+
+    </div>
+
+    <script>
+        (function () {
+
+            function levelLabel(v) {
+                if (v < 0.18) return 'Calm';
+                if (v < 0.38) return 'Light';
+                if (v < 0.60) return 'Moderate';
+                return 'Strong';
+            }
+            function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+            function rgbToHex(r, g, b) { return '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join(''); }
+            function lerpColor(c1, c2, f) { const a = hexToRgb(c1), b = hexToRgb(c2); return rgbToHex(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f); }
+            function turbColor(v) {
+                if (v <= 0.5) return lerpColor('#ffffff', '#ff8fc4', v / 0.5);
+                return lerpColor('#ff8fc4', '#ff2e93', (v - 0.5) / 0.5);
+            }
+
+            function formatClock(min) {
+                const h = Math.floor(min / 60), m = Math.round(min % 60);
+                return h + ':' + m.toString().padStart(2, '0');
+            }
+
+            const map = L.map('map', {
+                zoomControl: false,
+                attributionControl: true,
+                scrollWheelZoom: true
+            }).setView([37.5, 37], 6);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors',
+                maxZoom: 19,
+                subdomains: 'abc'
+            }).addTo(map);
+
+            document.getElementById('zoomIn').addEventListener('click', () => map.zoomIn());
+            document.getElementById('zoomOut').addEventListener('click', () => map.zoomOut());
+
+            let samples = [];
+            let flightMinutes = 160;
+            let routeLayer = L.layerGroup().addTo(map);
+            let planeMarker = null;
+            let timeMarker = null;
+            let planeSvgEl = null;
+            let timeTextEl = null;
+            let animFrame = null;
+            let playing = false;
+
+            function bezier(t, p0, p1, p2) {
+                const mt = 1 - t;
+                return {
+                    lat: mt * mt * p0.lat + 2 * mt * t * p1.lat + t * t * p2.lat,
+                    lng: mt * mt * p0.lng + 2 * mt * t * p1.lng + t * t * p2.lng
+                };
+            }
+
+            function turbAtSamplesT(t) {
+                for (let i = 0; i < samples.length - 1; i++) {
+                    if (t >= samples[i].t && t <= samples[i + 1].t) {
+                        const span = (samples[i + 1].t - samples[i].t) || 1;
+                        const f = (t - samples[i].t) / span;
+                        return samples[i].v + (samples[i + 1].v - samples[i].v) * f;
+                    }
+                }
+                return samples[samples.length - 1] ? samples[samples.length - 1].v : 0;
+            }
+
+            function planeSvgMarkup() {
+                return `<svg class="plane-icon" width="26" height="26" viewBox="-13 -13 26 26">
+          <path d="M0,-8 L4,2 L11,4 L11,7 L4,6 L2,13 L6,15 L6,17 L0,15 L-6,17 L-6,15 L-2,13 L-4,6 L-11,7 L-11,4 L-4,2 Z"
+                fill="#ffffff" stroke="#ff2e93" stroke-width="0.8"/>
+        </svg>`;
+            }
+
+            function stopPlaying() {
+                playing = false;
+                playBtn.innerHTML = '&#9654;';
+                if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+            }
+
+            function clearRoute() {
+                stopPlaying();
+                routeLayer.clearLayers();
+                if (planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
+                if (timeMarker) { map.removeLayer(timeMarker); timeMarker = null; }
+                planeSvgEl = null; timeTextEl = null;
+                samples = [];
+            }
+
+            function showMapMessage(text, title) {
+                if (title) document.getElementById('mapMessageTitle').textContent = title;
+                document.getElementById('mapMessageText').textContent = text;
+                document.getElementById('mapMessage').classList.add('visible');
+            }
+            function hideMapMessage() {
+                document.getElementById('mapMessage').classList.remove('visible');
+            }
+
+            function buildRouteShape(origin, destination) {
+                const p0 = { lat: origin.lat, lng: origin.lon };
+                const p2 = { lat: destination.lat, lng: destination.lon };
+                const dLat = p2.lat - p0.lat, dLng = p2.lng - p0.lng;
+                const perp = { lat: -dLng, lng: dLat };
+                const p1 = {
+                    lat: (p0.lat + p2.lat) / 2 + perp.lat * 0.15,
+                    lng: (p0.lng + p2.lng) / 2 + perp.lng * 0.15
+                };
+
+                const N = 90;
+                const pts = [];
+                for (let i = 0; i <= N; i++) {
+                    const t = i / N;
+                    const pt = bezier(t, p0, p1, p2);
+                    pts.push({ t, lat: pt.lat, lng: pt.lng });
+                }
+                return { p0, p2, points: pts };
+            }
+
+            function drawRoute(pts, turbLookup) {
+                routeLayer.clearLayers();
+                for (let i = 0; i < pts.length - 1; i++) {
+                    const a = pts[i], b = pts[i + 1];
+                    const midV = (turbLookup(a.t) + turbLookup(b.t)) / 2;
+                    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+                        color: turbColor(midV), weight: 5, opacity: 0.95, lineCap: 'round'
+                    }).addTo(routeLayer);
+                }
+            }
+
+            function bearingAt(pts, t) {
+                const N = pts.length - 1;
+                const i = Math.min(Math.max(Math.round(t * N), 1), N - 1);
+                const a = pts[i - 1], b = pts[i + 1] || pts[i];
+                const dLat = b.lat - a.lat, dLng = (b.lng - a.lng) * Math.cos(a.lat * Math.PI / 180);
+                return Math.atan2(dLng, dLat) * 180 / Math.PI;
+            }
+
+            const levelText = document.getElementById('levelText');
+            const pctText = document.getElementById('pctText');
+            const altText = document.getElementById('altText');
+            const durText = document.getElementById('durText');
+            const scrub = document.getElementById('scrub');
+            const timeLabel = document.getElementById('timeLabel');
+
+            let routePoints = [];
+
+            function altitudeAt(t) {
+                if (t < 0.15) return 34000 * (t / 0.15);
+                if (t > 0.85) return 34000 * (1 - (t - 0.85) / 0.15);
+                return 34000;
+            }
+
+            function nearestPoint(lat, lng) {
+                let best = routePoints[0], bestD = Infinity;
+                for (const s of routePoints) {
+                    const d = (s.lat - lat) * (s.lat - lat) + (s.lng - lng) * (s.lng - lng);
+                    if (d < bestD) { bestD = d; best = s; }
+                }
+                return best;
+            }
+
+            function setByT(t) {
+                if (routePoints.length === 0) return;
+                t = Math.min(Math.max(t, 0), 1);
+                const N = routePoints.length - 1;
+                const idx = Math.round(t * N);
+                const p = routePoints[idx];
+                const v = turbAtSamplesT(t);
+
+                levelText.textContent = levelLabel(v);
+                levelText.style.color = turbColor(v);
+                pctText.textContent = Math.round(t * 100) + '%';
+                altText.textContent = 'FL' + Math.round(altitudeAt(t) / 100).toString().padStart(3, '0');
+                scrub.value = Math.round(t * 1000);
+
+                const elapsed = formatClock(t * flightMinutes);
+                timeLabel.textContent = elapsed + ' / ' + formatClock(flightMinutes);
+
+                const angle = bearingAt(routePoints, t);
+
+                if (!planeMarker) {
+                    planeMarker = L.marker([p.lat, p.lng], {
+                        icon: L.divIcon({ html: planeSvgMarkup(), className: '', iconSize: [26, 26], iconAnchor: [13, 13] }),
+                        draggable: true,
+                        zIndexOffset: 1000
+                    }).addTo(map);
+                    planeSvgEl = planeMarker.getElement().querySelector('svg');
+
+                    planeMarker.on('drag', (e) => {
+                        const ll = e.target.getLatLng();
+                        const nearest = nearestPoint(ll.lat, ll.lng);
+                        applyReadout(nearest.t);
+                    });
+                    planeMarker.on('dragend', (e) => {
+                        const ll = e.target.getLatLng();
+                        const nearest = nearestPoint(ll.lat, ll.lng);
+                        setByT(nearest.t);
+                    });
+
+                    timeMarker = L.marker([p.lat, p.lng], {
+                        icon: L.divIcon({ html: `<div class="plane-time-badge">${elapsed}</div>`, className: '', iconSize: [0, 0], iconAnchor: [-4, 34] }),
+                        interactive: false,
+                        zIndexOffset: 1001
+                    }).addTo(map);
+                    timeTextEl = timeMarker.getElement().querySelector('.plane-time-badge');
+                } else {
+                    planeMarker.setLatLng([p.lat, p.lng]);
+                    if (planeSvgEl) planeSvgEl.style.transform = `rotate(${angle}deg)`;
+                    timeMarker.setLatLng([p.lat, p.lng]);
+                    if (timeTextEl) timeTextEl.textContent = elapsed;
+                }
+            }
+
+            function applyReadout(t) {
+                t = Math.min(Math.max(t, 0), 1);
+                const v = turbAtSamplesT(t);
+                levelText.textContent = levelLabel(v);
+                levelText.style.color = turbColor(v);
+                pctText.textContent = Math.round(t * 100) + '%';
+                altText.textContent = 'FL' + Math.round(altitudeAt(t) / 100).toString().padStart(3, '0');
+                scrub.value = Math.round(t * 1000);
+                const elapsed = formatClock(t * flightMinutes);
+                timeLabel.textContent = elapsed + ' / ' + formatClock(flightMinutes);
+                if (timeTextEl) timeTextEl.textContent = elapsed;
+            }
+
+            scrub.addEventListener('input', () => setByT(scrub.value / 1000));
+
+            const playBtn = document.getElementById('playBtn');
+            function playLoop(startTime) {
+                const duration = 6000;
+                function frame(now) {
+                    const t = ((now - startTime) % duration) / duration;
+                    setByT(t);
+                    if (playing) animFrame = requestAnimationFrame(frame);
+                }
+                animFrame = requestAnimationFrame(frame);
+            }
+            playBtn.addEventListener('click', () => {
+                if (routePoints.length === 0) return;
+                playing = !playing;
+                playBtn.innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+                if (playing) { playLoop(performance.now()); }
+                else if (animFrame) { cancelAnimationFrame(animFrame); }
+            });
+
+            const fnInput = document.getElementById('flightNumber');
+            const dateInput = document.getElementById('flightDate');
+            dateInput.max = new Date().toISOString().slice(0, 10);
+            const fnLabel = document.getElementById('fnLabel');
+            const routeLabel = document.getElementById('routeLabel');
+            const chartBtn = document.getElementById('chartBtn');
+
+            function formatDate(v) {
+                const d = new Date(v + 'T00:00:00');
+                return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            }
+
+            async function loadFlight(flightNumber, date) {
+                hideMapMessage();
+                routeLabel.classList.remove('error');
+                chartBtn.disabled = true;
+                chartBtn.textContent = 'Loading…';
+
+                try {
+                    const flightRes = await fetch(`/api/flight?flight=${flightNumber}&date=${date}`);
+                    const flight = await flightRes.json();
+
+                    if (flight.error) {
+                        clearRoute();
+                        routeLabel.textContent = flight.error;
+                        routeLabel.classList.add('error');
+                        showMapMessage('Double-check the flight number and date, then try again.', 'This flight doesn\'t exist');
+                        return;
+                    }
+
+                    fnLabel.textContent = flight.flightNumber;
+                    routeLabel.textContent = `${flight.origin.code} \u2192 ${flight.destination.code} \u00b7 ${formatDate(flight.date)}`;
+
+                    const depMs = new Date(flight.departureUtc.replace(' ', 'T')).getTime();
+                    const arrMs = new Date(flight.arrivalUtc.replace(' ', 'T')).getTime();
+                    flightMinutes = Math.max(1, Math.round((arrMs - depMs) / 60000));
+                    durText.textContent = formatClock(flightMinutes).replace(':', 'h ') + 'm';
+
+                    const shape = buildRouteShape(flight.origin, flight.destination);
+                    routePoints = shape.points;
+                    map.fitBounds(L.latLngBounds([[shape.p0.lat, shape.p0.lng], [shape.p2.lat, shape.p2.lng]]), { padding: [40, 40] });
+
+                    const turbUrl = `/api/turbulence?originLat=${flight.origin.lat}&originLon=${flight.origin.lon}` +
+                        `&destLat=${flight.destination.lat}&destLon=${flight.destination.lon}` +
+                        `&departureUtc=${encodeURIComponent(flight.departureUtc)}&arrivalUtc=${encodeURIComponent(flight.arrivalUtc)}`;
+                    const turbRes = await fetch(turbUrl);
+                    const turbData = await turbRes.json();
+
+                    if (turbData.points && turbData.points.length > 0) {
+                        samples = turbData.points;
+                    } else {
+                        samples = [{ t: 0, v: 0.1 }, { t: 1, v: 0.1 }];
+                        console.warn('Turbulence data unavailable, using flat fallback:', turbData);
+                    }
+
+                    stopPlaying();
+                    if (planeMarker) { map.removeLayer(planeMarker); }
+                    if (timeMarker) { map.removeLayer(timeMarker); }
+                    planeMarker = null; timeMarker = null; planeSvgEl = null; timeTextEl = null;
+                    drawRoute(routePoints, turbAtSamplesT);
+
+                    L.circleMarker([shape.p0.lat, shape.p0.lng], { radius: 5, color: '#ff2e93', fillColor: '#ffffff', fillOpacity: 1, weight: 2 }).addTo(routeLayer)
+                        .bindTooltip(`${flight.origin.code} · ${flight.origin.name}`, { permanent: true, direction: 'top', className: 'plane-time-badge', offset: [0, -8] });
+                    L.circleMarker([shape.p2.lat, shape.p2.lng], { radius: 5, color: '#ff2e93', fillColor: '#ffffff', fillOpacity: 1, weight: 2 }).addTo(routeLayer)
+                        .bindTooltip(`${flight.destination.code} · ${flight.destination.name}`, { permanent: true, direction: 'top', className: 'plane-time-badge', offset: [0, -8] });
+
+                    setByT(0);
+                    console.log('Flight:', flight, 'Turbulence:', turbData);
+
+                } catch (err) {
+                    console.error('Failed to load flight:', err);
+                    clearRoute();
+                    routeLabel.textContent = 'Error reaching server';
+                    routeLabel.classList.add('error');
+                    showMapMessage('Something went wrong talking to the server. Check your terminal and try again.', 'Connection problem');
+                } finally {
+                    chartBtn.disabled = false;
+                    chartBtn.textContent = 'Chart route';
+                }
+            }
+
+            chartBtn.addEventListener('click', () => {
+                const flightNumber = (fnInput.value || 'PC818').toUpperCase();
+                const date = dateInput.value || '2025-11-15';
+                loadFlight(flightNumber, date);
+            });
+
+            loadFlight('PC818', '2025-11-15');
+
+        })();
+    </script>
+
+</body>
+</html>
