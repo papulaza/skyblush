@@ -2,33 +2,6 @@
 const TURB_POINTS = 14;
 const MAX_SHEAR_KMH = 60;
 
-const LEVELS = [
-    { hpa: 850, m: 1500 },
-    { hpa: 700, m: 3000 },
-    { hpa: 600, m: 4200 },
-    { hpa: 500, m: 5600 },
-    { hpa: 400, m: 7200 },
-    { hpa: 300, m: 9200 },
-    { hpa: 250, m: 10400 },
-    { hpa: 200, m: 11800 }
-];
-
-function altitudeFtAt(t) {
-    const CRUISE_FT = 34000;
-    if (t < 0.15) return CRUISE_FT * (t / 0.15);
-    if (t > 0.85) return CRUISE_FT * (1 - (t - 0.85) / 0.15);
-    return CRUISE_FT;
-}
-
-function bracketLevels(altM) {
-    if (altM <= LEVELS[0].m) return [LEVELS[0], LEVELS[1]];
-    if (altM >= LEVELS[LEVELS.length - 1].m) return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
-    for (let i = 0; i < LEVELS.length - 1; i++) {
-        if (altM >= LEVELS[i].m && altM <= LEVELS[i + 1].m) return [LEVELS[i], LEVELS[i + 1]];
-    }
-    return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
-}
-
 function toUtcDate(isoLike) {
     return new Date(isoLike.replace(' ', 'T'));
 }
@@ -96,6 +69,7 @@ async function handleFlight(url, env) {
     }
 }
 
+// ---- turbulence: reverted to the simpler fixed 300hPa/250hPa comparison ----
 async function handleTurbulence(url) {
     const originLat = url.searchParams.get('originLat');
     const originLon = url.searchParams.get('originLon');
@@ -123,19 +97,15 @@ async function handleTurbulence(url) {
         const lat = oLat + (dLat - oLat) * t;
         const lon = oLon + (dLon - oLon) * t;
         const timeMs = depTime.getTime() + (arrTime.getTime() - depTime.getTime()) * t;
-        const altFt = altitudeFtAt(t);
-        const altM = altFt * 0.3048;
-        const [lower, upper] = bracketLevels(altM);
-        points.push({ t, lat, lon, time: new Date(timeMs), altFt, lower, upper });
+        points.push({ t, lat, lon, time: new Date(timeMs) });
     }
 
     const lats = points.map(p => p.lat.toFixed(4)).join(',');
     const lons = points.map(p => p.lon.toFixed(4)).join(',');
     const startDate = depTime.toISOString().slice(0, 10);
     const endDate = arrTime.toISOString().slice(0, 10);
-    const hourlyVars = LEVELS.map(l => `wind_speed_${l.hpa}hPa`).join(',');
 
-    const weatherUrl = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&start_date=${startDate}&end_date=${endDate}&hourly=${hourlyVars}&timezone=UTC`;
+    const weatherUrl = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&start_date=${startDate}&end_date=${endDate}&hourly=wind_speed_300hPa,wind_speed_250hPa&timezone=UTC`;
 
     try {
         const response = await fetch(weatherUrl);
@@ -149,34 +119,24 @@ async function handleTurbulence(url) {
         const result = points.map((p, i) => {
             const loc = locations[i];
             if (!loc || !loc.hourly || !loc.hourly.time) {
-                return { t: p.t, lat: p.lat, lon: p.lon, v: 0, altFt: Math.round(p.altFt), note: 'no data' };
+                return { t: p.t, lat: p.lat, lon: p.lon, v: 0, note: 'no data' };
             }
 
             const targetHourIso = new Date(p.time).toISOString().slice(0, 13) + ':00';
             let idx = loc.hourly.time.findIndex(ts => ts === targetHourIso);
             if (idx === -1) idx = 0;
 
-            const lowerKey = `wind_speed_${p.lower.hpa}hPa`;
-            const upperKey = `wind_speed_${p.upper.hpa}hPa`;
-            const wLower = loc.hourly[lowerKey] ? loc.hourly[lowerKey][idx] : null;
-            const wUpper = loc.hourly[upperKey] ? loc.hourly[upperKey][idx] : null;
+            const w300 = loc.hourly.wind_speed_300hPa ? loc.hourly.wind_speed_300hPa[idx] : null;
+            const w250 = loc.hourly.wind_speed_250hPa ? loc.hourly.wind_speed_250hPa[idx] : null;
 
             let v = 0;
             let shear = null;
-            if (wLower != null && wUpper != null) {
-                shear = Math.abs(wLower - wUpper);
+            if (w300 != null && w250 != null) {
+                shear = Math.abs(w300 - w250);
                 v = Math.min(Math.max(shear / MAX_SHEAR_KMH, 0), 1);
             }
 
-            return {
-                t: p.t,
-                lat: p.lat,
-                lon: p.lon,
-                v,
-                shearKmh: shear,
-                altFt: Math.round(p.altFt),
-                levelsUsed: `${p.lower.hpa}hPa/${p.upper.hpa}hPa`
-            };
+            return { t: p.t, lat: p.lat, lon: p.lon, v, shearKmh: shear };
         });
 
         return jsonResponse({ points: result });
@@ -190,7 +150,6 @@ export default {
     async fetch(request, env) {
         const url = new URL(request.url);
 
-        // API Route handling
         if (url.pathname === '/api/flight') {
             return handleFlight(url, env);
         }
@@ -198,7 +157,6 @@ export default {
             return handleTurbulence(url);
         }
 
-        // Static Asset fallback (serves index.html and public assets)
         if (env.ASSETS) {
             return env.ASSETS.fetch(request);
         }
