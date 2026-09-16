@@ -1,38 +1,75 @@
-require('dotenv').config();
-const express = require('express');
-const app = express();
-const PORT = 3000;
+// ---- TURBULENCE HELPER FUNCTIONS & CONSTANTS ----
+const TURB_POINTS = 14;
+const MAX_SHEAR_KMH = 60;
 
-app.use(express.static('public'));
+const LEVELS = [
+    { hpa: 850, m: 1500 },
+    { hpa: 700, m: 3000 },
+    { hpa: 600, m: 4200 },
+    { hpa: 500, m: 5600 },
+    { hpa: 400, m: 7200 },
+    { hpa: 300, m: 9200 },
+    { hpa: 250, m: 10400 },
+    { hpa: 200, m: 11800 }
+];
 
-// ---- flight lookup (AeroDataBox) ----
-app.get('/api/flight', async (req, res) => {
-    const flightNumber = req.query.flight;
-    const date = req.query.date;
+function altitudeFtAt(t) {
+    const CRUISE_FT = 34000;
+    if (t < 0.15) return CRUISE_FT * (t / 0.15);
+    if (t > 0.85) return CRUISE_FT * (1 - (t - 0.85) / 0.15);
+    return CRUISE_FT;
+}
+
+function bracketLevels(altM) {
+    if (altM <= LEVELS[0].m) return [LEVELS[0], LEVELS[1]];
+    if (altM >= LEVELS[LEVELS.length - 1].m) return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
+    for (let i = 0; i < LEVELS.length - 1; i++) {
+        if (altM >= LEVELS[i].m && altM <= LEVELS[i + 1].m) return [LEVELS[i], LEVELS[i + 1]];
+    }
+    return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
+}
+
+function toUtcDate(isoLike) {
+    return new Date(isoLike.replace(' ', 'T'));
+}
+
+// Helper for JSON responses
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        }
+    });
+}
+
+// ---- ROUTE HANDLERS ----
+async function handleFlight(url, env) {
+    const flightNumber = url.searchParams.get('flight');
+    const date = url.searchParams.get('date');
 
     if (!flightNumber || !date) {
-        return res.status(400).json({ error: 'Missing flight number or date' });
+        return jsonResponse({ error: 'Missing flight number or date' }, 400);
     }
 
-    const url = `https://aerodatabox.p.rapidapi.com/flights/number/${flightNumber}/${date}?withAircraftImage=false&withLocation=false`;
+    const apiUrl = `https://aerodatabox.p.rapidapi.com/flights/number/${flightNumber}/${date}?withAircraftImage=false&withLocation=false`;
 
     try {
-        const response = await fetch(url, {
+        const response = await fetch(apiUrl, {
             headers: {
                 'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
-                'x-rapidapi-key': process.env.AERODATABOX_KEY
+                'x-rapidapi-key': env.AERODATABOX_KEY || process.env.AERODATABOX_KEY
             }
         });
 
         const data = await response.json();
 
         if (!Array.isArray(data) || data.length === 0) {
-            console.log(`[flight] no result for ${flightNumber} on ${date}`);
-            return res.status(404).json({ error: 'No flight found for that number and date' });
+            return jsonResponse({ error: 'No flight found for that number and date' }, 404);
         }
 
         const flight = data[0];
-
         const result = {
             flightNumber: flight.number,
             date: date,
@@ -53,60 +90,22 @@ app.get('/api/flight', async (req, res) => {
             aircraft: flight.aircraft ? flight.aircraft.model : null
         };
 
-        console.log(`[flight] ${result.flightNumber}: ${result.origin.code} (${result.departureUtc}) -> ${result.destination.code} (${result.arrivalUtc})`);
-
-        res.json(result);
-
+        return jsonResponse(result);
     } catch (err) {
-        console.error('[flight] error:', err);
-        res.status(500).json({ error: 'Failed to fetch flight data' });
+        return jsonResponse({ error: 'Failed to fetch flight data' }, 500);
     }
-});
-
-// ---- turbulence lookup (Open-Meteo, altitude-aware wind shear) ----
-const TURB_POINTS = 14;
-const MAX_SHEAR_KMH = 60;
-
-// pressure levels we can query, each with its approximate altitude in meters
-const LEVELS = [
-    { hpa: 850, m: 1500 },
-    { hpa: 700, m: 3000 },
-    { hpa: 600, m: 4200 },
-    { hpa: 500, m: 5600 },
-    { hpa: 400, m: 7200 },
-    { hpa: 300, m: 9200 },
-    { hpa: 250, m: 10400 },
-    { hpa: 200, m: 11800 }
-];
-
-// mirrors the climb/cruise/descent shape used on the frontend
-function altitudeFtAt(t) {
-    const CRUISE_FT = 34000;
-    if (t < 0.15) return CRUISE_FT * (t / 0.15);
-    if (t > 0.85) return CRUISE_FT * (1 - (t - 0.85) / 0.15);
-    return CRUISE_FT;
 }
 
-// given an altitude in meters, find the two adjacent pressure levels
-// that bracket it, so shear is measured at the *relevant* band for that point
-function bracketLevels(altM) {
-    if (altM <= LEVELS[0].m) return [LEVELS[0], LEVELS[1]];
-    if (altM >= LEVELS[LEVELS.length - 1].m) return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
-    for (let i = 0; i < LEVELS.length - 1; i++) {
-        if (altM >= LEVELS[i].m && altM <= LEVELS[i + 1].m) return [LEVELS[i], LEVELS[i + 1]];
-    }
-    return [LEVELS[LEVELS.length - 2], LEVELS[LEVELS.length - 1]];
-}
-
-function toUtcDate(isoLike) {
-    return new Date(isoLike.replace(' ', 'T'));
-}
-
-app.get('/api/turbulence', async (req, res) => {
-    const { originLat, originLon, destLat, destLon, departureUtc, arrivalUtc } = req.query;
+async function handleTurbulence(url) {
+    const originLat = url.searchParams.get('originLat');
+    const originLon = url.searchParams.get('originLon');
+    const destLat = url.searchParams.get('destLat');
+    const destLon = url.searchParams.get('destLon');
+    const departureUtc = url.searchParams.get('departureUtc');
+    const arrivalUtc = url.searchParams.get('arrivalUtc');
 
     if (!originLat || !originLon || !destLat || !destLon || !departureUtc || !arrivalUtc) {
-        return res.status(400).json({ error: 'Missing route or time parameters' });
+        return jsonResponse({ error: 'Missing route or time parameters' }, 400);
     }
 
     const oLat = parseFloat(originLat), oLon = parseFloat(originLon);
@@ -114,10 +113,8 @@ app.get('/api/turbulence', async (req, res) => {
     const depTime = toUtcDate(departureUtc);
     const arrTime = toUtcDate(arrivalUtc);
 
-    console.log(`[turbulence] request: ${departureUtc} -> ${arrivalUtc}`);
-
     if (isNaN(depTime.getTime()) || isNaN(arrTime.getTime())) {
-        return res.status(400).json({ error: 'Could not parse flight times' });
+        return jsonResponse({ error: 'Could not parse flight times' }, 400);
     }
 
     const points = [];
@@ -134,23 +131,19 @@ app.get('/api/turbulence', async (req, res) => {
 
     const lats = points.map(p => p.lat.toFixed(4)).join(',');
     const lons = points.map(p => p.lon.toFixed(4)).join(',');
-
     const startDate = depTime.toISOString().slice(0, 10);
     const endDate = arrTime.toISOString().slice(0, 10);
-
     const hourlyVars = LEVELS.map(l => `wind_speed_${l.hpa}hPa`).join(',');
 
-    const url = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&start_date=${startDate}&end_date=${endDate}&hourly=${hourlyVars}&timezone=UTC`;
+    const weatherUrl = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&start_date=${startDate}&end_date=${endDate}&hourly=${hourlyVars}&timezone=UTC`;
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(weatherUrl);
         const raw = await response.json();
-
         const locations = Array.isArray(raw) ? raw : [raw];
 
         if (locations.length !== points.length) {
-            console.log('[turbulence] unexpected shape:', JSON.stringify(raw).slice(0, 300));
-            return res.status(502).json({ error: 'Unexpected response shape from weather data' });
+            return jsonResponse({ error: 'Unexpected response shape from weather data' }, 502);
         }
 
         const result = points.map((p, i) => {
@@ -186,16 +179,30 @@ app.get('/api/turbulence', async (req, res) => {
             };
         });
 
-        console.log('[turbulence] points:', result.map(r => `t=${r.t.toFixed(2)} alt=${r.altFt}ft levels=${r.levelsUsed} shear=${r.shearKmh}`));
-
-        res.json({ points: result });
-
+        return jsonResponse({ points: result });
     } catch (err) {
-        console.error('[turbulence] error:', err);
-        res.status(500).json({ error: 'Failed to fetch turbulence data' });
+        return jsonResponse({ error: 'Failed to fetch turbulence data' }, 500);
     }
-});
+}
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+// ---- MAIN WORKER EXPORT ----
+export default {
+    async fetch(request, env) {
+        const url = new URL(request.url);
+
+        // API Route handling
+        if (url.pathname === '/api/flight') {
+            return handleFlight(url, env);
+        }
+        if (url.pathname === '/api/turbulence') {
+            return handleTurbulence(url);
+        }
+
+        // Static Asset fallback (serves index.html and public assets)
+        if (env.ASSETS) {
+            return env.ASSETS.fetch(request);
+        }
+
+        return jsonResponse({ error: 'Not Found' }, 404);
+    }
+};
